@@ -1,0 +1,110 @@
+function [penalty_dB ,penalty_y ,TotalPenalty,BERasExpected,penalty_specificBER_db] = FindPenalty(Xin,Yin,XinRef,YinRef,BERPreferably)
+
+% input
+% Xin = SNR vector (or optical input)
+% yin = BER vector (compatible to BER vector of Xin)
+
+% The function gets:
+% - Xin - SNR vector (0:5:35). (1x8).
+% - Yin - BER vector (compatible to BER vector of Xin). (2 taps DFE, 8 taps FFE). (1x8).
+% - XinRef - SNR vector that is the reference (0:5:35). (1x8)
+% - YinRef - BER vector that is the reference (compatible to BER vector of XinRef) (3 taps DFE, 10 taps FFE). (1x8).
+% - BERPreferably - The BER that we chose to be the reference (1e-3).
+
+% And returns:
+% - penalty_dB - The difference between the SNR that was inserted ('Xin') 
+% to the chosen SNR from 'NewX_Ref' that its' correspond BER (from 'NewY_Ref') 
+% is the closest to current value BER from 'Yin'. (!!!!!!!!it has to be 8x1 vector (we think) but we get 8x8 matrix!!!!!!!). 
+
+% - penalty_y - The difference between the BER that was inserted (='Yin') 
+% (+epsil for some reason?????) and the reference BER ('YinRef') (in log10) (1x8).
+
+% - TotalPenalty - 
+
+% - BERasExpected - 
+
+% - penalty_specificBER_db - % The difference #BETWEEN# the SNR of the closest inserted BER 
+% to the chosen BER #TO# the SNR of the closest Ref BER to the chosen BER.
+
+
+penalty_specificBER_db = [];
+epsil = eps(1e-5)*ones(size(Yin)); % 'eps(x)' is a function that tells you how close a number 'x' is to the next larger number that can be represented by the computer's floating-point system.
+% 'epsil' is 8x1 vector of 1.6941e-21. (epsilon).
+%% increse resolution
+
+NewX_Ref = XinRef(1):0.01:XinRef(end); % Better resolution to the SNR. (0:0.01:35) (1x3501).
+NewX = Xin(1):0.01:Xin(end); % Better resolution. (0:0.05:35) (1x701). WE CHANGED IT SO THE RESOLUTION WILL BE THE SAME.
+
+NewY_Ref = 10.^(interp1(XinRef, log10(YinRef), NewX_Ref,'linear')); % interpolation to ref. The function gets the x 
+% values 'XinRef' and the y values 'log10(YinRef)'. and also a quiry new x values
+% 'NewX_Ref', and returns the new y values 'NewY_Ref' using linear interpolation (10 in power of).
+% --So 'NewY_Ref' is 'YinRef' but with better resolution (1x3501).
+NewY = 10.^(interp1(Xin,log10(Yin+epsil),NewX,'linear')); % 'NewY' is 'Yin' but with better resolution (1x701).
+% There is +epsil because (we think) 'Yin' may be 0. (??????SO WHY THERE IS NO +EPSIL IN 'NewY_Ref'??????)
+
+%% find penalty:
+
+vec_len = length(YinRef); % (=8)
+
+for ValIdx = 1:vec_len % (1:8)
+    val = Yin(ValIdx); % value to find (the BER (from what was inserted) for the current SNR).
+    DistanceFromVecValues = abs(NewY_Ref-val); % Vector that represents the distance of the 'NewY_Ref' (interpolated 'YinRef' (ref BER))
+    % from the current BER (that was inserted).
+    [MinDistance,  idx] = min(DistanceFromVecValues); % index of closest value (we want the closest BER from 'NewY_Ref' to the current value from 'Yin').
+    ClosestIdx(ValIdx,1) = idx; % 'ClosestIdx' is 8x1 vector that contains the indexes of the closest values from 'NewY_Ref' to the current value from 'Yin'.
+    ClosestVal(ValIdx,1) = NewY_Ref(idx); % closest value (the closest values from 'NewY_Ref' to the current value from 'Yin') (8x1 vector).
+    ClosestValX(ValIdx,1) = NewX_Ref(idx); % The SNR (from 'NewX_Ref') of the BER of 'NewY_Ref' that is the closest to the current value from 'Yin'. (8x1)
+end
+
+penalty_dB = abs(Xin - ClosestValX); % The difference between the SNR that was inserted (='Xin') 
+% to the SNR that we get when we check the closest vlues from 'NewY_Ref' to the current value from 'Yin' (='ClosestValX').
+penalty_y = abs(log10(Yin+epsil) - log10(YinRef)); % The difference between the BER that was inserted (='Yin') 
+% (+epsil for some reason?????) and the reference BER ('YinRef') (in log10).
+
+TotalPenalty = nan(size(penalty_dB)); % 8x8 matrix of NaN.
+BERasExpected= nan(size(penalty_dB)); % 8x8 matrix of NaN.
+
+TotalPenalty(Yin>=1e-5) = penalty_dB(Yin>=1e-5); % In the indexes where the 'Yin' (inserted BER) is larger (or equal) than 1e-5,'TotalPenalty' will get the correspond values from 'penalty_dB'. [8x8].
+BERasExpected(Yin>=1e-5) = ( TotalPenalty(Yin>=1e-5)<= 1.5 ); % In the indexes where the 'Yin' (inserted BER) is larger (or equal) than 1e-5, 
+% 'BERasExpected' will get 1 in the indexes where 'TotalPenalty' <= 1.5, and 0  in the indexes where 'TotalPenalty' > 1.5. [8x8].
+
+TotalPenalty(Yin<1e-5) = penalty_y(Yin<1e-5); % In the indexes where the 'Yin' (inserted BER) is smaller than 1e-5, 'TotalPenalty' will get the correspond values from 'penalty_y'. [8x8].
+BERasExpected(Yin<1e-5) = ( TotalPenalty(Yin<1e-5)<= 10 ); % In the indexes where the 'Yin' (inserted BER) is smaller than 1e-5,
+% 'BERasExpected' will get 1 in the indexes where 'TotalPenalty' <= 10, and 0  in the indexes where 'TotalPenalty' > 10. [8x8].
+
+% % figure;
+% % semilogy(Xin,Yin);grid on;hold all;
+% % semilogy(XinRef,YinRef);
+% % semilogy(ClosestValX,ClosestVal,'*');
+% % legend('BER','Expected BER','Closest BER for penalty calc')
+
+if nargin == 5
+    
+    if BERPreferably>1e-5 % penalty in dB
+        
+        DistanceFromMeasure = abs(NewY-BERPreferably); % 1x701 vector of the distances between the interpolated inserted BER ('NewY') and our chosen BER (1e-3).
+        DistanceFromRef = abs(NewY_Ref-BERPreferably); % 1x3501 vector of the distances between the interpolated Ref BER ('NewY') and our chosen BER (1e-3).
+        
+        [~, IdxMeasure] = min(DistanceFromMeasure); % Index of closest value from the BER that was inserted to the chosen BER.
+        [~, IdxRef] = min(DistanceFromRef); % Index of closest value from the Ref BER to the chosen BER.
+        
+        ClosestValMeasure = NewY(IdxMeasure); % Closest inserted value of BER to the chosen BER.
+        ClosestValRef= NewY_Ref(IdxRef); % Closest Ref value of BER to the chosen BER.
+        
+        ClosestValMeasureX = NewX(IdxMeasure); % The SNR of the closest inserted BER to the chosen BER.
+        ClosestValRefX = NewX_Ref(IdxRef); % The SNR of the closest Ref BER to the chosen BER.
+        
+% %         hold on;
+% %         semilogy(ClosestValMeasureX,ClosestValMeasure,'.');
+% %         semilogy(ClosestValRefX,ClosestValRef,'.');
+        
+        penalty_specificBER_db = ClosestValMeasureX - ClosestValRefX; % The difference #BETWEEN# the SNR of the closest inserted BER to the chosen BER #TO# the SNR of the closest Ref BER to the chosen BER. 
+        
+    else % penalty in Y axis
+        
+        
+    end
+end
+
+end
+

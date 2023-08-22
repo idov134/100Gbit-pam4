@@ -1,0 +1,78 @@
+function [SigOut,Param] = FilterS21(SigIn,S21,FIRlen,Param)
+% sigIn - the signal to perform convelution
+% S21 - conventional sparameter struct
+% Fs - sampling rate of SigIn
+% FIRlen - FIR length to represnts S21 (Imulse response of S21)
+% SigOut - SigIn convelution with S21 in the time domain, the output is sampled at Fs
+
+
+% The function gets:
+% *SigIn - The modulated samples that were holded (x8 for every sample)
+% and passed through Tx filter (digital bessel) (1048576x1 vector) (='SigTransmitted').
+% *S21 - The struct that was loaded (='S21strc').
+%    *S21.SparamDiff.Parameters - 2x2x4000 tensor of complex values that represents the s21.
+% *FIRlen - (=50).
+% *Param - The struct with all our parameters.
+
+% And return:
+% *SigOut - we have the 'SigIn' (the symbols that were holded and passed throught the Tx) 
+% (1048576x1)(='SigTransmitted'), and we are doing to it interpolation to
+% be (419431x1), then this samples pass through our PCB (='FIR')
+% !!(FOR NOW WE ASSUME THAT THERE IS NO CTLE BECAUSE THERE ARE FIELDS AND FUNCTION THAT DON'T EXIST)!!
+% and again we are doing interpolation so it will be (1048576x1) and not (419431x1).
+% So 'SigOut' is (1048576x1) samples that passed throught the PCB.
+% *Param - our struct with all the parameters.
+
+% note:
+% 'FIR' - is the zeros of the digital filter that
+% represents the PCB response (freqz(FIR, 1) will give us the frequency
+% response)
+
+
+Fs = Param.Fs;
+
+F = S21.SparamDiff.Frequencies; % 4000x1 vector that represents the frequency (from 0.1G to 40G).
+S21 = squeeze(S21.SparamDiff.Parameters(2,1,:)); % We will get the 2nd row, the 1st column and all
+% the depthes as a 4000x1 vector ('squeeze' removes the Dim of length 1, so 1x1x4000 will be just 4000x1).
+FIR = S21toFIR(S21,F,FIRlen); % The ifft of the interpolated (to be 25x1) and the double sided S21 (49x1 vector).
+FsPCB = F(end)*2; % (=80GHz).
+Param.state.FsPCB = FsPCB;
+
+if Param.CTLEen % (in our case 'Param.CTLEen = 0').
+    CTLEstrc = GetCLTEstrc(S21,F,Param);
+
+    [FIRctle]  = Param.state.CTLEstruc(FIR);
+    Param.state.PCB.FIR_at_Fs = Hest;
+    if 0
+    [H,F] = freqz(FIR,1,1e4,FsPCB); % 'FIR' is the zeros vector, and there is no poles vector. 
+    % [H, F] is the frequency response of the digital filter 'FIR'.
+    [H1,F] = freqz(FIRctle,1,1e4,FsPCB) ;
+    plot(F,db([H,H1])) % The frequency response of our pcb. (FOR NOW ASSUME THAT 
+    % 'FIRctle = FIR' BECAUSE 'Param.state.CTLEstruc' DOES NOT EXIST!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!).
+    end
+else
+    FIRctle = FIR; % The ifft of the interpolated (to be 25x1) and the double sided S21 (49x1 vector).
+end
+
+
+SigInIntrp = interp1(SigIn,(1:Fs/FsPCB:length(SigIn))','cubic'); % Interpolating 'SigIn' (='SigTransmitted') 
+% to be 'SigInIntrp'. 'SigInIntrp' is [419431x1] (and not 104857x1) vector
+% that behave in the same way as 'SigIn' in cubic manner.
+SigFilter = filter(FIRctle,1,SigInIntrp); % 'SigInIntrp' (the symbols that were holded and passed through the 
+% Tx, and were interpolated) passing throught the PCB (FOR NOW NO CTLE) (='SigFilter').
+SigOut = interp1(SigFilter,(1:FsPCB/Fs:length(SigFilter))','cubic'); % 'SigOut' is [1048576x1] (and not 419431x1) the 
+% interpolated 'SigFilter' vector, 'SigOut' behave in the same way as 'SigFilter' in cubic manner.
+% Estimate Channel reponse with Fs
+% [Hest,Error,SNRest,~] = ChannelEstimation(SigIn,SigOut,FIRlen,1,0);
+
+
+Param.state.PCB.FIR = FIR;
+Param.state.PCB.Fs = FsPCB;
+if 0
+    SigtoCheck = interp1(SigInIntrp,(1:FsPCB/Fs:length(SigInIntrp))','cubic'); % Interpolating 'SigInIntrp' to be a [1048576x1] vector 
+    % (and not 419431x1) in a cubic manner. (='SigtoCheck').
+    SNR = db(rms(SigIn)/rms(SigIn-SigtoCheck)) % It is not perfect because we did interpolation twice.
+    eyediagram(SigOut(100:1e3),8) % The eyediagram of the signal after he passed the PCB.
+%     freqz(Hest,1,1e4,Fs)
+end
+end

@@ -1,0 +1,20 @@
+function CTLEstrc = GetCLTEstrc(Param)
+
+% This function gets:
+% *Param - The struct with all our parameters.
+
+% And returns:
+% .............................
+
+SymbolTime = 1/Param.Rs;
+DCGain = 0:-1:-26;
+PeakingGain = 0:26;
+PeakingFrequency = Param.Rs*0.7; % The peak gain will be at 0.7*Rs (=0.7*25GHz).
+dt = 1/Param.Fs;
+
+CTLEstrc = serdes.CTLE('SymbolTime',SymbolTime,'SampleInterval',dt,...
+    'Mode',2,'WaveType','Impulse',...
+    'DCGain',DCGain,'PeakingGain',PeakingGain,...
+    'PeakingFrequency',PeakingFrequency);
+end
+
